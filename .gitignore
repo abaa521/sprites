@@ -5,6 +5,14 @@ npm-debug.log
 test/
 desktop.ini
 
+# Logs
+*.log
+logs/
+
+# PM2
+.pm2/
+ecosystem.config.js.backup
+
 # PhpStorm
 .idea/
 

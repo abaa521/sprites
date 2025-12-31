@@ -1,13 +1,10 @@
 pipeline {
   agent any
   environment {
-    APP_NAME    = 'sprites'
-    PORT        = '3015'
-    NODE_ENV    = 'production'
-    WORK_DIR    = "${env.WORKSPACE}"
-    PUBLISH_DIR = 'C:/Publish/sprites'
-    PNPM        = 'pnpm'
-    NPX         = 'C:/Program Files/nodejs/npx.cmd'
+    APP_NAME     = 'sprites'
+    PORT         = '3015'
+    DOCKER_IMAGE = 'sprites:latest'
+    PUBLISH_DIR  = 'C:/Publish/sprites'
   }
   stages {
     stage('Checkout') {
@@ -16,9 +13,11 @@ pipeline {
       }
     }
 
-    stage('Node Install') {
+    stage('Build Docker Image') {
       steps {
-        bat '%PNPM% install --frozen-lockfile'
+        bat '''
+        docker build -t %DOCKER_IMAGE% .
+        '''
       }
     }
 
@@ -27,36 +26,37 @@ pipeline {
         bat '''
         if not exist "%PUBLISH_DIR%" mkdir "%PUBLISH_DIR%"
         '''
-        // 複製必要檔案到發佈資料夾
+      }
+    }
+
+    stage('Stop Existing Container') {
+      steps {
         bat '''
-        robocopy "%WORK_DIR%" "%PUBLISH_DIR%" /MIR /XD .git node_modules .vscode .github /XF Jenkinsfile *.log *.md
-        exit 0
+        docker stop %APP_NAME% >nul 2>&1 || exit /b 0
+        docker rm %APP_NAME% >nul 2>&1 || exit /b 0
         '''
       }
     }
 
-    stage('Install Production Deps (Publish Dir)') {
+    stage('Run Docker Container') {
       steps {
         bat '''
-        cd /d "%PUBLISH_DIR%"
-        %PNPM% install --frozen-lockfile --prod
+        docker run -d ^
+          --name %APP_NAME% ^
+          -p %PORT%:%PORT% ^
+          --restart always ^
+          --memory 256m ^
+          --cpus 0.5 ^
+          %DOCKER_IMAGE%
         '''
       }
     }
 
-    stage('PM2 Deploy') {
+    stage('Verify Container') {
       steps {
         bat '''
-        cd /d "%PUBLISH_DIR%"
-        "%NPX%" pm2 describe %APP_NAME% >nul 2>&1 && (
-          echo Restarting existing PM2 app: %APP_NAME%
-          "%NPX%" pm2 restart ecosystem.config.js
-        ) || (
-          echo Starting new PM2 app: %APP_NAME%
-          "%NPX%" pm2 start ecosystem.config.js
-        )
-        "%NPX%" pm2 save
-        "%NPX%" pm2 ls
+        timeout /t 5 /nobreak
+        docker ps -a | find "%APP_NAME%"
         '''
       }
     }
@@ -64,10 +64,15 @@ pipeline {
   post {
     failure {
       echo 'Deploy failed.'
-      bat '"%NPX%" pm2 logs %APP_NAME% --lines 200 --nostream || ver > nul'
+      bat '''
+      docker logs %APP_NAME% --tail 100 || ver > nul
+      '''
     }
     success {
-      echo 'Deploy success.'
+      echo 'Deploy success. Sprites server is running on port %PORT%'
+      bat '''
+      docker ps | find "%APP_NAME%"
+      '''
     }
   }
 }

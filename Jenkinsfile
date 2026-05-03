@@ -1,6 +1,7 @@
 pipeline {
   agent any
   environment {
+    DOCKER_HOST  = 'npipe:////./pipe/dockerDesktopLinuxEngine'
     APP_NAME     = 'sprites'
     PORT         = '3015'
     DOCKER_IMAGE = 'sprites:latest'
